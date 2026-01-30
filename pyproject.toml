@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lbforaging"
+version = "2.0.0"
+description = "Level Based Foraging Environment"
+readme = "README.md"
+license = { text = "GPL-3.0+" }
+authors = [
+  { name = "Filippos Christianos" },
+]
+requires-python = ">=3.7"
+dependencies = [
+  "numpy",
+  "gymnasium",
+  "pyglet<2",
+  "six",
+  "pettingzoo",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pyright",
+  "ruff",
+]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/semitable/lb-foraging"
+Repository = "https://github.com/semitable/lb-foraging"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["lbforaging"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py37"
+include = ["lbforaging/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+select = [
+  "E",      # pycodestyle errors
+  "W",      # pycodestyle warnings
+  "F",      # Pyflakes
+  "I",      # isort
+  "C901",   # mccabe complexity
+]
+
+[tool.ruff.format]
+quote-style = "double"

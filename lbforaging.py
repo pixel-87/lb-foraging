@@ -15,7 +15,7 @@ def _game_loop(env, render):
     obss, _ = env.reset()
     done = False
 
-    returns = np.zeros(env.n_agents)
+    returns = np.zeros(env.unwrapped.n_agents)
 
     if render:
         env.render()
