@@ -38,6 +38,7 @@ where = ["."]
 [tool.pyright]
 typeCheckingMode = "strict"
 include = ["lbforaging"]
+reportMissingTypeStubs = false
 
 [tool.ruff]
 line-length = 100
