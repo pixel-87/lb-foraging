@@ -27,6 +27,12 @@ dev = [
   "ruff",
 ]
 test = ["pytest"]
+train = [
+  "torch",
+  "stable-baselines3",
+  "supersuit",
+  "tensorboard",
+]
 
 [project.urls]
 Homepage = "https://github.com/semitable/lb-foraging"
