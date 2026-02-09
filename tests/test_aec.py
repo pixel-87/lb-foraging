@@ -462,5 +462,100 @@ def test_collision_detection():
     assert env.players[0].position != env.players[1].position
 
 
+def test_collision_same_cell(simple2p1f):
+    """Test two agents trying to move to the exact same cell at the same time."""
+    env = simple2p1f
+    env.reset()
+    
+    # Place P0 at (2,1) and P1 at (2,3)
+    env.players[0].position = (2, 1)
+    env.players[1].position = (2, 3)
+    env.field[:] = 0
+    env._gen_valid_moves()
+    
+    # Both move towards (2,2)
+    # AEC requires stepping through agents.
+    env.step(Action.EAST.value) # Agent 0 moves EAST to (2,2)
+    env.step(Action.WEST.value) # Agent 1 moves WEST to (2,2)
+    
+    # After cycle, positions should remain unchanged because of collision
+    assert env.players[0].position == (2, 1)
+    assert env.players[1].position == (2, 3)
+
+
+def test_swap_positions(simple2p1f):
+    """Test two agents swapping positions (should be allowed in this implementation)."""
+    env = simple2p1f
+    env.reset()
+    
+    # Place P0 at (2,2) and P1 at (2,3)
+    env.players[0].position = (2, 2)
+    env.players[1].position = (2, 3)
+    env.field[:] = 0
+    env._gen_valid_moves()
+    
+    # P0 moves EAST (to 2,3), P1 moves WEST (to 2,2)
+    env.step(Action.EAST.value) # Agent 0
+    env.step(Action.WEST.value) # Agent 1
+    
+    # Positions should swap because they don't 'collide' in AEC as their moves are processed?
+    # Wait, my refactor processes ALL buffered actions at once.
+    # If they are processed at once, and target pos is the other's current pos...
+    # My logic:
+    #   collisions = defaultdict(list)
+    #   for player, action in zip(players, actions):
+    #       target_pos = ...
+    #       collisions[target_pos].append(player)
+    #   for k, v in collisions.items():
+    #       if len(v) > 1: continue
+    #       v[0].position = k
+    
+    # So if P0 targets (2,3) and P1 targets (2,2):
+    # collisions[(2,3)] = [P0] -> valid!
+    # collisions[(2,2)] = [P1] -> valid!
+    # They swap!
+    
+    assert env.players[0].position == (2, 3)
+    assert env.players[1].position == (2, 2)
+
+
+def test_loading_logic_normalization(simple2p1f):
+    """Test verify the reward normalization logic."""
+    env = simple2p1f
+    env.reset()
+    
+    # Place food at (2,2) with level 2
+    env.field[:] = 0
+    env.field[2, 2] = 2
+    env._food_spawned = 2.0 # Total food spawned value
+    
+    # Place P0 at (2,1) and P1 at (2,3). Both level 1.
+    env.players[0].position = (2, 1)
+    env.players[0].level = 1
+    env.players[1].position = (2, 3)
+    env.players[1].level = 1
+    env._gen_valid_moves()
+    
+    # Both LOAD
+    # Because AEC needs to cycle through agents, we step through them
+    for _ in env.agent_iter(max_iter=2):
+        obs, reward, term, trunc, info = env.last()
+        env.step(Action.LOAD.value)
+    
+    # Total Level = 1 + 1 = 2. Food = 2.
+    # Reward unnormalized = PlayerLevel * Food = 1 * 2 = 2.
+    # Normalization factor = TotalLevel (2) * TotalFoodSpawned (2.0) = 4.0.
+    # Expected normalized reward = 2 / 4 = 0.5.
+    
+    # Rewards are collected in env.players[i].reward during step()
+    # BUT in AEC, rewards are distributed.
+    # The `last()` call returns reward for the *current* agent selection.
+    # My test `test_reward_cooperative_loading` checked `env.players[i].reward`.
+    
+    assert env.players[0].reward == 0.5
+    assert env.players[1].reward == 0.5
+    assert env.field[2, 2] == 0 # Food removed
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

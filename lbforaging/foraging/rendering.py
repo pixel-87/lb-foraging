@@ -7,7 +7,6 @@ import os
 import sys
 
 import numpy as np
-import six
 from gymnasium import error
 
 if "Apple" in sys.version:
@@ -59,7 +58,7 @@ def get_display(spec):
     """
     if spec is None:
         return None
-    elif isinstance(spec, six.string_types):
+    elif isinstance(spec, str):
         return pyglet.canvas.Display(spec)
     else:
         raise error.Error(
@@ -103,15 +102,10 @@ class Viewer(object):
         self.isopen = False
         exit()
 
-    def set_bounds(self, left, right, bottom, top):
-        assert right > left and top > bottom
-        scalex = self.width / (right - left)
-        scaley = self.height / (top - bottom)
-        self.transform = Transform(
-            translation=(-left * scalex, -bottom * scaley), scale=(scalex, scaley)
-        )
+
 
     def render(self, env, return_rgb_array=False):
+        arr = []
         glClearColor(*_WHITE, 0)
         self.window.clear()
         self.window.switch_to()
@@ -136,7 +130,7 @@ class Viewer(object):
         for r in range(self.rows + 1):
             batch.add(
                 2,
-                gl.GL_LINES,
+                GL_LINES,
                 None,
                 (
                     "v2f",
@@ -154,7 +148,7 @@ class Viewer(object):
         for c in range(self.cols + 1):
             batch.add(
                 2,
-                gl.GL_LINES,
+                GL_LINES,
                 None,
                 (
                     "v2f",

@@ -1,14 +1,15 @@
-from collections import namedtuple, defaultdict
+import logging
+from collections import defaultdict, namedtuple
 from enum import Enum
 from itertools import product
-import logging
-from typing import Iterable
+from typing import ClassVar, Iterable
 
 import gymnasium as gym
-from gymnasium.utils import seeding
 import numpy as np
+from gymnasium.utils import seeding
 from pettingzoo import AECEnv
-from pettingzoo.utils import AgentSelector, wrappers
+from pettingzoo.utils import AgentSelector
+
 
 class Action(Enum):
     NONE = 0
@@ -66,12 +67,12 @@ class ForagingEnv(AECEnv):
     A class that contains rules/actions for the game level-based foraging.
     """
 
-    metadata = {
+    metadata: ClassVar[dict] = {
         "render_modes": ["human", "rgb_array"],
         "render_fps": 5,
     }
 
-    action_set = [Action.NORTH, Action.SOUTH, Action.WEST, Action.EAST, Action.LOAD]
+    action_set: ClassVar[list] = [Action.NORTH, Action.SOUTH, Action.WEST, Action.EAST, Action.LOAD]
     Observation = namedtuple(
         "Observation",
         ["field", "actions", "players", "game_over", "sight", "current_step"],
@@ -175,14 +176,14 @@ class ForagingEnv(AECEnv):
         self._observe_agent_levels = observe_agent_levels
 
         self.n_agents = len(self.players)
-        
+
         # AEC Setup
         self.possible_agents = ["player_" + str(r) for r in range(self.n_agents)]
         self.agent_name_mapping = dict(
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
         self._agent_selector = AgentSelector(self.possible_agents)
-        
+
         self.action_spaces = {agent: gym.spaces.Discrete(6) for agent in self.possible_agents}
         self.observation_spaces = {agent: self._get_observation_space() for agent in self.possible_agents}
 
@@ -452,7 +453,7 @@ class ForagingEnv(AECEnv):
         elif action == Action.LOAD:
             return self.adjacent_food(*player.position) > 0
 
-        self.logger.error("Undefined action {} from {}".format(action, player.name))
+        self.logger.error(f"Undefined action {action} from {player.name}")
         raise ValueError("Undefined action")
 
     def _transform_to_neighborhood(self, center, sight, position):
@@ -500,99 +501,99 @@ class ForagingEnv(AECEnv):
             current_step=self.current_step,
         )
 
+    def _make_obs_array(self, observation):
+        obs = np.zeros(self.observation_spaces[self.possible_agents[0]].shape, dtype=np.float32)
+        # obs[: observation.field.size] = observation.field.flatten()
+        # self player is always first
+        seen_players = [p for p in observation.players if p.is_self] + [
+            p for p in observation.players if not p.is_self
+        ]
+
+        for i in range(self.max_num_food):
+            obs[3 * i] = -1
+            obs[3 * i + 1] = -1
+            obs[3 * i + 2] = 0
+
+        for i, (y, x) in enumerate(zip(*np.nonzero(observation.field))):
+            obs[3 * i] = y
+            obs[3 * i + 1] = x
+            obs[3 * i + 2] = observation.field[y, x]
+
+        player_obs_len = 3 if self._observe_agent_levels else 2
+        for i in range(len(self.players)):
+            obs[self.max_num_food * 3 + player_obs_len * i] = -1
+            obs[self.max_num_food * 3 + player_obs_len * i + 1] = -1
+            if self._observe_agent_levels:
+                obs[self.max_num_food * 3 + player_obs_len * i + 2] = 0
+
+        for i, p in enumerate(seen_players):
+            obs[self.max_num_food * 3 + player_obs_len * i] = p.position[0]
+            obs[self.max_num_food * 3 + player_obs_len * i + 1] = p.position[1]
+            if self._observe_agent_levels:
+                obs[self.max_num_food * 3 + player_obs_len * i + 2] = p.level
+
+        return obs
+
+    def _make_global_grid_arrays(self):
+        """
+        Create global arrays for grid observation space
+        """
+        grid_shape_x, grid_shape_y = self.field_size
+        grid_shape_x += 2 * self.sight
+        grid_shape_y += 2 * self.sight
+        grid_shape = (grid_shape_x, grid_shape_y)
+
+        agents_layer = np.zeros(grid_shape, dtype=np.float32)
+        for player in self.players:
+            if player.position is None:
+                continue
+            player_x, player_y = player.position
+            if self._observe_agent_levels:
+                agents_layer[player_x + self.sight, player_y + self.sight] = (
+                    player.level
+                )
+            else:
+                agents_layer[player_x + self.sight, player_y + self.sight] = 1
+
+        foods_layer = np.zeros(grid_shape, dtype=np.float32)
+        foods_layer[self.sight : -self.sight, self.sight : -self.sight] = (
+            self.field.copy()
+        )
+
+        access_layer = np.ones(grid_shape, dtype=np.float32)
+        # out of bounds not accessible
+        access_layer[: self.sight, :] = 0.0
+        access_layer[-self.sight :, :] = 0.0
+        access_layer[:, : self.sight] = 0.0
+        access_layer[:, -self.sight :] = 0.0
+        # agent locations are not accessible
+        for player in self.players:
+            if player.position is None:
+                continue
+            player_x, player_y = player.position
+            access_layer[player_x + self.sight, player_y + self.sight] = 0.0
+        # food locations are not accessible
+        foods_x, foods_y = self.field.nonzero()
+        for x, y in zip(foods_x, foods_y):
+            access_layer[x + self.sight, y + self.sight] = 0.0
+
+        return np.stack([agents_layer, foods_layer, access_layer])
+
+    def _get_agent_grid_bounds(self, agent_x, agent_y):
+        return (
+            agent_x,
+            agent_x + 2 * self.sight + 1,
+            agent_y,
+            agent_y + 2 * self.sight + 1,
+        )
+
     def _make_gym_obs(self):
-        def make_obs_array(observation):
-            obs = np.zeros(self.observation_spaces[self.possible_agents[0]].shape, dtype=np.float32)
-            # obs[: observation.field.size] = observation.field.flatten()
-            # self player is always first
-            seen_players = [p for p in observation.players if p.is_self] + [
-                p for p in observation.players if not p.is_self
-            ]
-
-            for i in range(self.max_num_food):
-                obs[3 * i] = -1
-                obs[3 * i + 1] = -1
-                obs[3 * i + 2] = 0
-
-            for i, (y, x) in enumerate(zip(*np.nonzero(observation.field))):
-                obs[3 * i] = y
-                obs[3 * i + 1] = x
-                obs[3 * i + 2] = observation.field[y, x]
-
-            player_obs_len = 3 if self._observe_agent_levels else 2
-            for i in range(len(self.players)):
-                obs[self.max_num_food * 3 + player_obs_len * i] = -1
-                obs[self.max_num_food * 3 + player_obs_len * i + 1] = -1
-                if self._observe_agent_levels:
-                    obs[self.max_num_food * 3 + player_obs_len * i + 2] = 0
-
-            for i, p in enumerate(seen_players):
-                obs[self.max_num_food * 3 + player_obs_len * i] = p.position[0]
-                obs[self.max_num_food * 3 + player_obs_len * i + 1] = p.position[1]
-                if self._observe_agent_levels:
-                    obs[self.max_num_food * 3 + player_obs_len * i + 2] = p.level
-
-            return obs
-
-        def make_global_grid_arrays():
-            """
-            Create global arrays for grid observation space
-            """
-            grid_shape_x, grid_shape_y = self.field_size
-            grid_shape_x += 2 * self.sight
-            grid_shape_y += 2 * self.sight
-            grid_shape = (grid_shape_x, grid_shape_y)
-
-            agents_layer = np.zeros(grid_shape, dtype=np.float32)
-            for player in self.players:
-                if player.position is None:
-                    continue
-                player_x, player_y = player.position
-                if self._observe_agent_levels:
-                    agents_layer[player_x + self.sight, player_y + self.sight] = (
-                        player.level
-                    )
-                else:
-                    agents_layer[player_x + self.sight, player_y + self.sight] = 1
-
-            foods_layer = np.zeros(grid_shape, dtype=np.float32)
-            foods_layer[self.sight : -self.sight, self.sight : -self.sight] = (
-                self.field.copy()
-            )
-
-            access_layer = np.ones(grid_shape, dtype=np.float32)
-            # out of bounds not accessible
-            access_layer[: self.sight, :] = 0.0
-            access_layer[-self.sight :, :] = 0.0
-            access_layer[:, : self.sight] = 0.0
-            access_layer[:, -self.sight :] = 0.0
-            # agent locations are not accessible
-            for player in self.players:
-                if player.position is None:
-                    continue
-                player_x, player_y = player.position
-                access_layer[player_x + self.sight, player_y + self.sight] = 0.0
-            # food locations are not accessible
-            foods_x, foods_y = self.field.nonzero()
-            for x, y in zip(foods_x, foods_y):
-                access_layer[x + self.sight, y + self.sight] = 0.0
-
-            return np.stack([agents_layer, foods_layer, access_layer])
-
-        def get_agent_grid_bounds(agent_x, agent_y):
-            return (
-                agent_x,
-                agent_x + 2 * self.sight + 1,
-                agent_y,
-                agent_y + 2 * self.sight + 1,
-            )
-
         observations = [self._make_obs(player) for player in self.players]
         if self._grid_observation:
-            layers = make_global_grid_arrays()
+            layers = self._make_global_grid_arrays()
             agents_bounds = [
-                get_agent_grid_bounds(*player.position) 
-                for player in self.players 
+                self._get_agent_grid_bounds(*player.position)
+                for player in self.players
                 if player.position is not None
             ]
             nobs = tuple(
@@ -602,7 +603,7 @@ class ForagingEnv(AECEnv):
                 ]
             )
         else:
-            nobs = tuple([make_obs_array(obs) for obs in observations])
+            nobs = tuple([self._make_obs_array(obs) for obs in observations])
 
         # check the space of obs
         for i, obs in enumerate(nobs):
@@ -640,21 +641,21 @@ class ForagingEnv(AECEnv):
         self.terminations = {agent: False for agent in self.agents}
         self.truncations = {agent: False for agent in self.agents}
         self.infos = {agent: {} for agent in self.agents}
-        
+
         self._agent_selector = AgentSelector(self.agents)
         self.agent_selection = self._agent_selector.reset()
         self._actions = {agent: None for agent in self.agents}
 
         # return self._make_gym_obs(), self._get_info()
-    
+
     def observe(self, agent):
         """Return the observation for the specified agent."""
         obs = self._make_gym_obs()
         return obs[self.agent_name_mapping[agent]]
-    
+
     def last(self, observe=True):
         """Return observation, cumulative reward, terminated, truncated, info for the current agent.
-        
+
         This is the primary method for interacting with AEC environments.
         """
         agent = self.agent_selection
@@ -684,7 +685,7 @@ class ForagingEnv(AECEnv):
             # Execute all buffered actions
             actions_list = [self._actions[a] for a in self.agents]
             _, rewards, done, truncated, info = self._process_actions(actions_list)
-            
+
             # Update agent states
             for a in self.agents:
                 self.rewards[a] = rewards[self.agent_name_mapping[a]]
@@ -696,7 +697,7 @@ class ForagingEnv(AECEnv):
             self._clear_rewards()
 
         self.agent_selection = self._agent_selector.next()
-    
+
     def _was_dead_step(self, action):
         """Handle step for an agent that is already terminated or truncated."""
         # When all agents are done, clear everything
@@ -707,25 +708,22 @@ class ForagingEnv(AECEnv):
             self.truncations = {}
             self.infos = {}
             self._cumulative_rewards = {}
-        
+
         self.agent_selection = self._agent_selector.next()
-    
+
     def _clear_rewards(self):
         """Clear the rewards dictionary."""
         for agent in self.rewards:
             self.rewards[agent] = 0
-    
+
     def _accumulate_rewards(self):
         """Accumulate rewards into cumulative rewards (deprecated, not used in this implementation)."""
         for agent in self.rewards:
             self._cumulative_rewards[agent] += self.rewards[agent]
 
-    def _process_actions(self, actions):
-        self.current_step += 1
-
-        for p in self.players:
-            p.reward = 0
-
+    def _validate_actions(self, actions):
+        """Validate and sanitize actions."""
+        # sanitize actions
         actions = [
             Action(a) if Action(a) in self._valid_actions[p] else Action.NONE
             for p, a in zip(self.players, actions)
@@ -735,43 +733,48 @@ class ForagingEnv(AECEnv):
         for i, (player, action) in enumerate(zip(self.players, actions)):
             if action not in self._valid_actions[player]:
                 self.logger.info(
-                    "{}{} attempted invalid action {}.".format(
-                        player.name, player.position, action
-                    )
+                    f"{player.name}{player.position} attempted invalid action {action}."
                 )
                 actions[i] = Action.NONE
+        return actions
 
+    def _get_proposed_position(self, player, action):
+        if action == Action.NORTH:
+            return (player.position[0] - 1, player.position[1])
+        elif action == Action.SOUTH:
+            return (player.position[0] + 1, player.position[1])
+        elif action == Action.WEST:
+            return (player.position[0], player.position[1] - 1)
+        elif action == Action.EAST:
+            return (player.position[0], player.position[1] + 1)
+        return player.position
+
+    def _resolve_player_movements(self, actions):
+        """Resolve player movements and identify loading players."""
         loading_players = set()
-
-        # move players
-        # if two or more players try to move to the same location they all fail
         collisions = defaultdict(list)
 
-        # so check for collisions
+        # check for collisions
         for player, action in zip(self.players, actions):
             if player.position is None:
                 continue
-            if action == Action.NONE:
-                collisions[player.position].append(player)
-            elif action == Action.NORTH:
-                collisions[(player.position[0] - 1, player.position[1])].append(player)
-            elif action == Action.SOUTH:
-                collisions[(player.position[0] + 1, player.position[1])].append(player)
-            elif action == Action.WEST:
-                collisions[(player.position[0], player.position[1] - 1)].append(player)
-            elif action == Action.EAST:
-                collisions[(player.position[0], player.position[1] + 1)].append(player)
-            elif action == Action.LOAD:
-                collisions[player.position].append(player)
+
+            target_pos = self._get_proposed_position(player, action)
+            collisions[target_pos].append(player)
+
+            if action == Action.LOAD:
                 loading_players.add(player)
 
-        # and do movements for non colliding players
+        # do movements for non-colliding players
         for k, v in collisions.items():
-            if len(v) > 1:  # make sure no more than an player will arrive at location
+            if len(v) > 1:  # collision
                 continue
             v[0].position = k
 
-        # finally process the loadings:
+        return loading_players
+
+    def _process_food_loading(self, loading_players):
+        """Process food loading attempt by players."""
         while loading_players:
             # find adjacent food
             player = loading_players.pop()
@@ -790,6 +793,7 @@ class ForagingEnv(AECEnv):
             ]
 
             adj_player_level = sum([a.level for a in adj_players if a.level is not None])
+            # remove other participants from the set so we don't process them again
             loading_players = loading_players - set(adj_players)
 
             if adj_player_level < food:
@@ -801,13 +805,15 @@ class ForagingEnv(AECEnv):
             # else the food was loaded and each player scores points
             for a in adj_players:
                 a.reward = float(a.level * food)
-                if self._normalize_reward:
-                    a.reward = a.reward / float(
+                if self._normalize_reward and self._food_spawned > 0:
+                     a.reward = a.reward / float(
                         adj_player_level * self._food_spawned
-                    )  # normalize reward
+                    )
             # and the food is removed
             self.field[frow, fcol] = 0
 
+    def _update_game_state(self):
+        """Update game over state and player scores."""
         self._game_over = (
             self.field.sum() == 0 or self._max_episode_steps <= self.current_step
         )
@@ -818,6 +824,17 @@ class ForagingEnv(AECEnv):
                 p.score += p.reward
             else:
                 p.score = p.reward
+
+    def _process_actions(self, actions):
+        self.current_step += 1
+
+        for p in self.players:
+            p.reward = 0
+
+        actions = self._validate_actions(actions)
+        loading_players = self._resolve_player_movements(actions)
+        self._process_food_loading(loading_players)
+        self._update_game_state()
 
         rewards = [p.reward for p in self.players]
         done = self._game_over

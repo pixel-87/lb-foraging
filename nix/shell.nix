@@ -5,9 +5,9 @@
 
   # python tooling
   python3,
-  uv,
-  pyright,
-  ruff,
+  uv, # package management
+  ty, # type checker
+  ruff, # linting formatting all that goodness
 
   # graphics 
   xvfb-run,
@@ -28,7 +28,7 @@ mkShell {
   packages = [
     python3
     uv
-    pyright
+    ty 
     ruff
     xvfb-run
   ];
@@ -40,8 +40,8 @@ mkShell {
       uv venv
     fi
     source .venv/bin/activate
-
-    uv pip install -e .
+    # Sync pinned dependencies into the venv (do not install editable egg-link)
+    uv sync
   '';
 
 }

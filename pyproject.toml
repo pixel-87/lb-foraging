@@ -16,14 +16,12 @@ dependencies = [
   "numpy",
   "gymnasium",
   "pyglet<2",
-  "six",
   "pettingzoo",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest",
-  "pyright",
   "ruff",
 ]
 test = ["pytest"]
@@ -41,24 +39,53 @@ Repository = "https://github.com/semitable/lb-foraging"
 [tool.setuptools.packages.find]
 where = ["."]
 
-[tool.pyright]
-typeCheckingMode = "strict"
+[tool.ty.src]
 include = ["lbforaging"]
-reportMissingTypeStubs = false
+
 
 [tool.ruff]
 line-length = 100
-target-version = "py37"
-include = ["lbforaging/**/*.py", "tests/**/*.py"]
+target-version = "py38"  # Bump to slightly newer, since 3.7 is really EOL
+src = ["lbforaging", "tests"] 
 
 [tool.ruff.lint]
 select = [
-  "E",      # pycodestyle errors
-  "W",      # pycodestyle warnings
-  "F",      # Pyflakes
-  "I",      # isort
-  "C901",   # mccabe complexity
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "C901",   # mccabe complexity
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",   # Line length handled by formatter
 ]
 
 [tool.ruff.format]
 quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.8"
+check_untyped_defs = true
+disallow_untyped_defs = false # Start lenient
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
